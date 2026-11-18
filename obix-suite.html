@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obix Suite: Architect &amp; Curiosity Lab</title>
+<!--
+  GOOGLE SHEET SETUP (Apps Script)
+  1. Create a Google Sheet. Extensions > Apps Script. Paste:
+
+     function doPost(e) {
+       var d = JSON.parse(e.postData.contents);
+       var ss = SpreadsheetApp.getActiveSpreadsheet();
+       var app = d.app || "ObixArchitect";
+       var sheet = ss.getSheetByName(app) || ss.insertSheet(app);
+       var header, row;
+       if (app === "ObixGuessVsReality") {
+         header = ["Timestamp","Name","Contact","Guess Focus","Guess Calm","Guess Root-Cause","Real Focus","Real Calm","Real Root-Cause"];
+         row = [new Date(), d.name, d.contact, d.guesses.gFocus, d.guesses.gCalm, d.guesses.gRoot, d.reality.rFocus, d.reality.rCalm, d.reality.rRoot];
+       } else if (app === "ObixRootCauseDetective") {
+         header = ["Timestamp","Name","Contact","Case Solved","Clue 1","Clue 2","Clue 3"];
+         row = [new Date(), d.name, d.contact, d.caseSolved].concat(d.clues || []);
+       } else {
+         header = ["Timestamp","Name","Email / WhatsApp","Role","Selected Goal","Bottleneck Stage","Total Score","Journey Assigned","Profile Summary","Plan Preferences"];
+         row = [new Date(), d.name, d.email, d.role, d.selectedGoal, d.bottleneckStage, d.totalScore, d.journeyAssigned, d.profileSummary, d.planPreferences];
+       }
+       if (sheet.getLastRow() === 0) sheet.appendRow(header);
+       sheet.appendRow(row);
+       return ContentService.createTextOutput("ok");
+     }
+
+     Each app writes to its own tab: ObixArchitect, ObixGuessVsReality, ObixRootCauseDetective.
+
+  2. Deploy > New deployment > Web app. Execute as: Me. Who has access: Anyone.
+  3. Paste the Web App URL into WEBHOOK_URL below.
+-->
+<style>
+  :root{
+    --bg:#0b0f17; --card:#131926; --card-2:#182033; --border:#232d42;
+    --text:#e6edf7; --muted:#94a3b8; --dim:#64748b;
+    --cyan:#38bdf8; --emerald:#10b981; --amber:#f59e0b;
+    --radius:14px;
+    --font:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh}
+  button,input{font:inherit;color:inherit}
+  a{color:var(--cyan)}
+  .wrap{max-width:980px;margin:0 auto;padding:24px 20px 64px}
+
+  /* Header */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:28px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand-name{font-weight:800;letter-spacing:.14em;font-size:14px}
+  .brand-sub{font-size:12px;color:var(--muted);letter-spacing:.02em}
+  .stepper{display:flex;gap:6px;list-style:none;margin:0;padding:0;flex-wrap:wrap}
+  .stepper li{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);padding:6px 10px;border:1px solid var(--border);border-radius:999px;transition:all .3s}
+  .stepper li.on{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
+  .stepper li.done{color:var(--emerald);border-color:rgba(16,185,129,.45)}
+
+  /* Screens */
+  .screen{display:none}
+  .screen.active{display:block;animation:enter .45s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes enter{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  h1{font-size:clamp(26px,4.2vw,40px);line-height:1.15;margin:0 0 10px;letter-spacing:-.01em}
+  h2{font-size:clamp(20px,3vw,26px);line-height:1.25;margin:0 0 8px}
+  h3{font-size:18px;margin:0 0 6px}
+  .lead{color:var(--muted);font-size:17px;margin:0 0 24px;max-width:720px}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);margin:0 0 10px}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+  .pipe{margin:8px 0 28px}
+  .pipe svg{display:block;width:100%;height:auto}
+  .pipe-v{display:none}
+  @media (max-width:640px){.pipe-h{display:none}.pipe-v{display:block;max-width:380px;margin:0 auto}}
+
+  /* Goal cards */
+  .goals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  @media (max-width:640px){.goals{grid-template-columns:1fr}}
+  .goal{display:flex;gap:14px;align-items:flex-start;text-align:left;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;cursor:pointer;transition:border-color .2s,background .2s,transform .2s}
+  .goal:hover{border-color:rgba(56,189,248,.5);transform:translateY(-2px)}
+  .goal[aria-pressed="true"]{border-color:var(--cyan);background:#11203a;box-shadow:0 0 0 1px var(--cyan) inset}
+  .goal-num{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:14px;background:#0f2235;color:var(--cyan);border:1px solid rgba(56,189,248,.35)}
+  .goal[aria-pressed="true"] .goal-num{background:var(--cyan);color:var(--bg)}
+  .goal-title{font-weight:650;font-size:16px;line-height:1.4}
+
+  .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:24px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:12px 22px;border-radius:10px;border:1px solid transparent;font-weight:700;font-size:15px;cursor:pointer;transition:all .2s;text-decoration:none}
+  .btn-primary{background:var(--cyan);color:#06111c}
+  .btn-primary:hover:not(:disabled){background:#7dd3fc}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed}
+  .btn-ghost{background:transparent;border-color:var(--border);color:var(--text)}
+  .btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+  .btn-emerald{background:var(--emerald);color:#04140e}
+  .btn-emerald:hover{background:#34d399}
+  .link-btn{background:none;border:none;color:var(--muted);font-size:14px;text-decoration:underline;cursor:pointer;padding:12px 4px;min-height:44px}
+  .link-btn:hover{color:var(--text)}
+
+  /* Diagnostic */
+  .progress-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.04em}
+  .progress{height:6px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:26px}
+  .progress span{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--emerald));border-radius:99px;transition:width .45s cubic-bezier(.2,.7,.2,1)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .chip{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;border-radius:999px;border:1px solid rgba(56,189,248,.4);color:var(--cyan);background:#0f1d2e}
+  .scenario-box{animation:enter .4s cubic-bezier(.2,.7,.2,1) both}
+  .scenario-prompt{font-size:clamp(19px,2.6vw,23px);font-weight:650;line-height:1.4;margin:0 0 22px}
+  .options{display:grid;gap:12px}
+  .option{display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;cursor:pointer;transition:all .2s;min-height:64px}
+  .option:hover{border-color:rgba(56,189,248,.5);background:var(--card-2)}
+  .option[aria-pressed="true"]{border-color:var(--cyan);background:#11203a}
+  .opt-key{flex:none;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:13px;border:1px solid var(--border);color:var(--muted)}
+  .option[aria-pressed="true"] .opt-key{background:var(--cyan);border-color:var(--cyan);color:var(--bg)}
+  .opt-text{font-size:16px;line-height:1.5}
+
+  /* Form */
+  .gate{display:grid;grid-template-columns:1.1fr 1fr;gap:22px;align-items:start}
+  @media (max-width:760px){.gate{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+  .field label{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--muted)}
+  .field input{background:#0e1420;border:1px solid var(--border);border-radius:10px;padding:13px 14px;font-size:16px;min-height:48px;transition:border-color .2s}
+  .field input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+  .field input[aria-invalid="true"]{border-color:var(--amber)}
+  .err{font-size:13px;color:var(--amber);min-height:18px}
+  .locked{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:10px}
+  .locked li{display:flex;gap:10px;align-items:center;font-size:15px;color:var(--muted)}
+  .locked svg{flex:none}
+  .note{font-size:13px;color:var(--dim);margin-top:10px}
+
+  /* Results */
+  .result-head{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:end;margin-bottom:18px}
+  @media (max-width:640px){.result-head{grid-template-columns:1fr}}
+  .score-badge{text-align:right}
+  @media (max-width:640px){.score-badge{text-align:left}}
+  .score-num{font-size:44px;font-weight:800;line-height:1;color:var(--cyan)}
+  .score-num small{font-size:18px;color:var(--muted);font-weight:600}
+  .tier{display:inline-block;margin-top:6px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:999px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:-12px;margin-bottom:22px}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}
+  @media (max-width:760px){.grid-2{grid-template-columns:1fr}}
+  .insight h3{display:flex;align-items:center;gap:8px}
+  .insight p{margin:0;color:var(--muted)}
+  .insight.amber{border-color:rgba(245,158,11,.5)}
+  .insight.emerald{border-color:rgba(16,185,129,.5)}
+  .tag{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;border-radius:6px}
+  .tag.amber{background:rgba(245,158,11,.14);color:var(--amber)}
+  .tag.emerald{background:rgba(16,185,129,.14);color:var(--emerald)}
+  .bars{display:grid;gap:12px;margin-bottom:28px}
+  .bar-row{display:grid;grid-template-columns:170px 1fr 44px;gap:12px;align-items:center;font-size:14px}
+  @media (max-width:520px){.bar-row{grid-template-columns:1fr 44px}.bar-row .bar-track{grid-column:1 / -1;grid-row:2}}
+  .bar-track{height:8px;background:var(--border);border-radius:99px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:99px;width:0;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+  .bar-val{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  .journey-title{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .weeks{display:grid;gap:14px;position:relative}
+  .week{display:grid;grid-template-columns:68px 1fr;gap:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;animation:enter .5s cubic-bezier(.2,.7,.2,1) both}
+  @media (max-width:560px){.week{grid-template-columns:1fr;gap:10px}}
+  .week-badge{width:60px;height:60px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f1d2e;border:1px solid rgba(56,189,248,.35);color:var(--cyan)}
+  .week-badge small{font-size:10px;font-weight:700;letter-spacing:.14em}
+  .week-badge b{font-size:24px;line-height:1}
+  .week:last-child .week-badge{background:#0b2019;border-color:rgba(16,185,129,.45);color:var(--emerald)}
+  .week-theme{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+  .week p{margin:0 0 10px}
+  .kv{margin-top:10px;padding:12px 14px;border-radius:10px;background:#0e1420;border:1px solid var(--border)}
+  .kv b{display:block;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan);margin-bottom:4px}
+  .kv.goal-lens b{color:var(--emerald)}
+  .rule{display:grid;gap:8px;margin-top:6px}
+  .rule div{padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:#0e1420}
+  .rule .if b{color:var(--amber)}
+  .rule .then b{color:var(--emerald)}
+  .rule b{font-size:13px;letter-spacing:.12em;margin-right:6px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--emerald);color:#04140e;font-weight:700;padding:12px 18px;border-radius:10px;opacity:0;pointer-events:none;transition:all .3s;z-index:10}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* Intro steps */
+  .how{list-style:none;counter-reset:how;margin:0 0 8px;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  @media (max-width:760px){.how{grid-template-columns:1fr 1fr}}
+  @media (max-width:440px){.how{grid-template-columns:1fr}}
+  .how li{counter-increment:how;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:4px}
+  .how li::before{content:counter(how);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:13px;background:#0f2235;color:var(--cyan);border:1px solid rgba(56,189,248,.35);margin-bottom:6px}
+  .how b{font-size:15px}
+  .how span{font-size:14px;color:var(--muted)}
+  .goal-body{display:flex;flex-direction:column;gap:6px}
+  .rec{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:rgba(245,158,11,.14);color:var(--amber)}
+
+  /* Profile & development need */
+  .chip.amber{border-color:rgba(245,158,11,.5);color:var(--amber);background:#221a0b}
+  .tag.cyan{background:rgba(56,189,248,.14);color:var(--cyan)}
+  .stage-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .stage-k{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .stage-card p{margin:0;color:var(--muted)}
+  .stage-card.amber,.need-card,.confirm.amber{border-color:rgba(245,158,11,.5)}
+  .stage-card.emerald,.confirm.emerald{border-color:rgba(16,185,129,.5)}
+  .need-card{margin-bottom:28px}
+  .need-list{margin:6px 0 0;padding-left:22px;display:grid;gap:12px;color:var(--muted)}
+  .need-list b{color:var(--text)}
+  .confirm{margin-bottom:14px}
+  .confirm h3{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .confirm p{margin:0;color:var(--muted)}
+  .bar-label small{display:block;font-size:12px;color:var(--dim)}
+
+  /* SVG flow animation */
+  .flow{stroke-dasharray:7 7;animation:dash 1s linear infinite}
+  @keyframes dash{from{stroke-dashoffset:14}to{stroke-dashoffset:0}}
+  .pulse{animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+  }
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--border);font-size:12px;color:var(--dim)}
+
+  /* v4: intro parts, plan preferences, plan meta */
+  .parts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:640px){.parts{grid-template-columns:1fr}}
+  .part{display:flex;gap:14px;align-items:flex-start;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .part-n{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;background:#0f2235;color:var(--cyan);border:1px solid rgba(56,189,248,.35)}
+  .part b{display:block;font-size:16px;margin-bottom:2px}
+  .part span{font-size:14px;color:var(--muted)}
+  .q-label{font-size:16px;margin:26px 0 12px}
+  .goal-body{display:flex;flex-direction:column;gap:6px}
+  .rec{align-self:flex-start;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:rgba(245,158,11,.14);color:var(--amber)}
+  .seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  @media (max-width:640px){.seg{grid-template-columns:1fr}}
+  .seg-btn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;min-height:52px;padding:14px 16px;background:var(--card);border:1px solid var(--border);border-radius:12px;cursor:pointer;font-weight:650;transition:all .2s}
+  .seg-btn:hover{border-color:rgba(56,189,248,.5)}
+  .seg-btn[aria-pressed="true"]{border-color:var(--cyan);background:#11203a;box-shadow:0 0 0 1px var(--cyan) inset}
+  .seg-btn span{font-size:13px;font-weight:500;color:var(--muted)}
+  .form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 14px}
+  @media (max-width:760px){.form-grid{grid-template-columns:1fr}}
+  #e-goal{margin:8px 0 0}
+  .plan-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0 6px}
+  @media (max-width:760px){.plan-meta{grid-template-columns:1fr 1fr}}
+  .plan-meta span{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.4}
+  .plan-meta b{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .insight .kv{margin-top:12px}
+
+  /* ================= SUITE SHELL ================= */
+  .suite-nav{display:flex;gap:6px;flex-wrap:wrap}
+  .suite-nav button,.suite-nav a{font:inherit;font-size:13px;font-weight:650;color:var(--muted);background:transparent;border:1px solid var(--border);border-radius:999px;padding:8px 14px;cursor:pointer;text-decoration:none;transition:all .2s;min-height:38px;display:inline-flex;align-items:center}
+  .suite-nav a[hidden]{display:none}
+  .suite-nav button:hover,.suite-nav a:hover{color:var(--text);border-color:var(--cyan)}
+  .suite-nav button[aria-current="page"]{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
+  .module{display:none}
+  .module.active{display:block;animation:enter .45s cubic-bezier(.2,.7,.2,1) both}
+  .arch-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+  .arch-bar .eyebrow{margin:0}
+
+  /* Hub */
+  .hub-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+  @media (max-width:860px){.hub-grid{grid-template-columns:1fr}}
+  .hub-card{display:flex;flex-direction:column;gap:10px;text-align:left;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;cursor:pointer;font:inherit;color:inherit;transition:border-color .2s,transform .2s}
+  .hub-card:hover{transform:translateY(-3px)}
+  .hub-card.c-cyan:hover{border-color:var(--cyan)}
+  .hub-card.c-emerald:hover{border-color:var(--emerald)}
+  .hub-card.c-amber:hover{border-color:var(--amber)}
+  .hub-card .hub-icon{width:46px;height:46px;border-radius:12px;display:grid;place-items:center}
+  .hub-card.c-cyan .hub-icon{background:rgba(56,189,248,.12);color:var(--cyan)}
+  .hub-card.c-emerald .hub-icon{background:rgba(16,185,129,.12);color:var(--emerald)}
+  .hub-card.c-amber .hub-icon{background:rgba(245,158,11,.12);color:var(--amber)}
+  .hub-tag{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .hub-card h3{font-size:19px;margin:0}
+  .hub-card p{margin:0;color:var(--muted);font-size:14px;flex:1}
+  .hub-go{font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px}
+  .hub-card.c-cyan .hub-go{color:var(--cyan)}
+  .hub-card.c-emerald .hub-go{color:var(--emerald)}
+  .hub-card.c-amber .hub-go{color:var(--amber)}
+  .hub-path{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;font-size:14px;color:var(--muted)}
+  .hub-path b{color:var(--text)}
+  .hub-mirror{margin-top:14px;font-size:14px;color:var(--muted)}
+
+  /* ================= CURIOSITY LAB (scoped, lx- prefix) ================= */
+  #mod-lab{--accent:#38bdf8}
+  #mod-lab h1{font-size:26px;margin:0 0 12px;line-height:1.25}
+  #mod-lab h2{font-size:20px;margin:0 0 10px;line-height:1.3}
+  #mod-lab p{color:var(--muted);margin:0 0 18px;font-size:15px}
+  .lx-container{width:100%;max-width:680px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+  @media (max-width:520px){.lx-container{padding:22px 18px}#mod-lab h1{font-size:22px}}
+  .lx-screen{animation:enter .35s ease both}
+  .lx-top-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+  .lx-badge{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);background:rgba(56,189,248,.12);padding:4px 12px;border-radius:999px}
+  .lx-badge-emerald{color:var(--emerald);background:rgba(16,185,129,.12)}
+  .lx-home-link{font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline;background:none;border:none;font-family:inherit;white-space:nowrap;padding:8px 0}
+  .lx-home-link:hover{color:var(--text)}
+  .lx-mode-card{display:block;width:100%;text-align:left;font-family:inherit;color:inherit;background:#0d131f;border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:14px;cursor:pointer;transition:all .2s ease}
+  .lx-mode-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .lx-mode-card.lx-detective:hover{border-color:var(--emerald)}
+  .lx-slider-group{background:#0d131f;border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
+  .lx-slider-header{display:flex;justify-content:space-between;gap:12px;font-size:14px;font-weight:600;margin-bottom:8px}
+  #mod-lab input[type="range"]{width:100%;accent-color:var(--accent);cursor:pointer}
+  .lx-btn{display:block;width:100%;padding:15px;background:var(--accent);color:#0b0f17;font-weight:700;font-size:15px;font-family:inherit;border:none;border-radius:10px;cursor:pointer;margin-top:8px}
+  .lx-btn-emerald{background:var(--emerald)}
+  .lx-btn-outline{background:transparent;border:1px solid var(--border);color:var(--text);margin-top:10px}
+  .lx-btn:hover{opacity:.92}
+  .lx-link-btn{display:block;margin:12px auto 0;background:none;border:none;color:var(--muted);font-size:13px;font-family:inherit;text-decoration:underline;cursor:pointer}
+  .lx-link-btn:hover{color:var(--text)}
+  .lx-choice-btn{width:100%;text-align:left;background:#182032;border:1px solid var(--border);color:var(--text);padding:16px 18px;border-radius:10px;margin-bottom:12px;font-size:15px;font-family:inherit;cursor:pointer;transition:.2s}
+  .lx-choice-btn:hover{border-color:var(--accent);background:#1e2940}
+  .lx-evidence-trail{background:#0d131f;border-left:3px solid var(--emerald);padding:12px 16px;border-radius:8px;margin-bottom:18px;font-size:13px;color:var(--muted)}
+  .lx-evidence-trail strong{color:var(--emerald)}
+  .lx-compare-row{background:#0d131f;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+  .lx-compare-head{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:14px;font-weight:600}
+  .lx-bar-track{height:8px;background:#1e293b;border-radius:99px;margin:6px 0;overflow:hidden}
+  .lx-bar-fill{height:100%;border-radius:99px;width:0;transition:width .8s ease}
+  .lx-legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:0 0 12px}
+  .lx-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  label.lx-field-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+  #mod-lab input[type="text"]{width:100%;padding:13px;background:#0d131f;border:1px solid var(--border);border-radius:8px;color:var(--text);margin-bottom:12px;font-size:14px;font-family:inherit}
+  #mod-lab input[type="text"]:focus{outline:none;border-color:var(--accent)}
+  .lx-error{color:var(--amber);font-size:13px;margin:-6px 0 10px;min-height:18px}
+  .lx-rule-box{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.5);border-radius:12px;padding:18px;margin-bottom:14px}
+  .lx-rule-box strong{color:var(--emerald);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  #mod-lab .lx-rule-box p{color:var(--text);margin:8px 0 0;font-size:16px;font-weight:600}
+  #mod-lab .lx-hint{font-size:13px;color:var(--muted);font-style:italic;margin-bottom:16px}
+  .lx-hidden{display:none}
+
+
+  /* ================= HOME (clean, two modules) ================= */
+  .home{max-width:880px;margin:0 auto;padding:40px 0 24px;text-align:center}
+  .home-kicker{font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin:0 0 16px}
+  .home h1{font-size:clamp(32px,5vw,52px);line-height:1.08;letter-spacing:-.02em;margin:0 0 16px}
+  .grad{background:linear-gradient(90deg,#38bdf8,#10b981);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .home-sub{font-size:18px;color:var(--muted);max-width:560px;margin:0 auto 44px}
+  .home-mods{display:grid;grid-template-columns:1fr 1fr;gap:20px;text-align:left}
+  @media (max-width:720px){.home{padding-top:16px}.home-mods{grid-template-columns:1fr}}
+  .home-mod{display:flex;flex-direction:column;gap:8px;padding:28px;border-radius:18px;background:var(--card);border:1px solid var(--border);color:var(--text);text-decoration:none;transition:transform .2s,border-color .2s,box-shadow .2s}
+  .home-mod:hover,.home-mod:focus-visible{transform:translateY(-4px);outline:none}
+  .m-lab:hover,.m-lab:focus-visible{border-color:var(--emerald);box-shadow:0 18px 40px rgba(16,185,129,.12)}
+  .m-arch:hover,.m-arch:focus-visible{border-color:var(--cyan);box-shadow:0 18px 40px rgba(56,189,248,.12)}
+  .home-mod-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .home-mod-icon{width:52px;height:52px;border-radius:14px;display:grid;place-items:center}
+  .m-lab .home-mod-icon{background:rgba(16,185,129,.12);color:var(--emerald)}
+  .m-arch .home-mod-icon{background:rgba(56,189,248,.12);color:var(--cyan)}
+  .home-mod-time{font-size:12px;font-weight:700;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:4px 10px}
+  .home-mod-label{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .home-mod h2{font-size:26px;margin:0}
+  .home-mod p{margin:0;color:var(--muted);font-size:15px}
+  .home-mod ul{list-style:none;margin:10px 0 18px;padding:0;display:grid;gap:8px;flex:1;align-content:start}
+  .home-mod li{position:relative;padding-left:22px;font-size:14px;color:var(--text)}
+  .home-mod li::before{content:"";position:absolute;left:0;top:7px;width:8px;height:8px;border-radius:50%}
+  .m-lab li::before{background:var(--emerald)}
+  .m-arch li::before{background:var(--cyan)}
+  .home-mod-go{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:12px;font-weight:700;font-size:15px}
+  .m-lab .home-mod-go{background:var(--emerald);color:#04140e}
+  .m-arch .home-mod-go{background:var(--cyan);color:#06111c}
+  .home-note{margin:28px 0 0;font-size:13px;color:var(--dim)}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+        <rect x="1" y="1" width="34" height="34" rx="9" fill="#131926" stroke="#232d42"/>
+        <circle cx="10" cy="18" r="3" fill="#38bdf8"/>
+        <circle cx="18" cy="18" r="3" fill="#f59e0b"/>
+        <circle cx="26" cy="18" r="3" fill="#10b981"/>
+        <path d="M13 18h2M21 18h2" stroke="#94a3b8" stroke-width="1.5"/>
+      </svg>
+      <div>
+        <div class="brand-name">OBIX SUITE</div>
+        <div class="brand-sub">Behavioral &amp; Leadership Development Engine</div>
+      </div>
+    </div>
+    <nav class="suite-nav" aria-label="Suite">
+      <button type="button" data-mod="home">Home</button>
+      <button type="button" data-mod="architect">Obix Architect</button>
+      <button type="button" data-mod="lab">Curiosity Lab</button>
+      <a id="nav-mirror" href="#" target="_blank" rel="noopener" hidden>Obix Mirror ↗</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ================= HUB ================= -->
+    <section class="module" id="mod-home" aria-labelledby="hub-h">
+      <div class="home">
+        <p class="home-kicker">Obix Suite</p>
+        <h1 id="hub-h">You know what to do.<br><span class="grad">So why don’t you do it?</span></h1>
+        <p class="home-sub">Discover the autopilot behind your everyday choices, then build a plan to take the wheel back.</p>
+
+        <div class="home-mods">
+          <a href="#lab" class="home-mod m-lab" onclick="event.preventDefault(); suiteOpen('lab')">
+            <span class="home-mod-top">
+              <span class="home-mod-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9V3"/><path d="M7.5 15h9"/></svg></span>
+              <span class="home-mod-time">2 min each</span>
+            </span>
+            <span class="home-mod-label">Module 1</span>
+            <h2>Curiosity Lab</h2>
+            <p>Quick experiments that reveal how you really behave.</p>
+            <ul>
+              <li>Guess vs. Reality: your self-image gap</li>
+              <li>Root-Cause Detective: why problems repeat</li>
+            </ul>
+            <span class="home-mod-go">Enter the Lab <span aria-hidden="true">→</span></span>
+          </a>
+
+          <a href="#architect" class="home-mod m-arch" onclick="event.preventDefault(); suiteOpen('architect')">
+            <span class="home-mod-top">
+              <span class="home-mod-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></span>
+              <span class="home-mod-time">4 min</span>
+            </span>
+            <span class="home-mod-label">Module 2</span>
+            <h2>Obix Architect</h2>
+            <p>Your leadership profile and a personal 4-week plan.</p>
+            <ul>
+              <li>Your style across the 4 pipeline stages</li>
+              <li>A 4-week journey built around your goal</li>
+            </ul>
+            <span class="home-mod-go">Start Architect <span aria-hidden="true">→</span></span>
+          </a>
+        </div>
+
+        <p class="home-note">Free · No sign-up to start · New here? Begin with the Curiosity Lab.</p>
+        <p class="hub-mirror" id="hub-mirror" hidden>Looking for the baseline diagnostic? <a href="#" target="_blank" rel="noopener">Open Obix Mirror ↗</a></p>
+      </div>
+    </section>
+
+    <!-- ================= OBIX ARCHITECT ================= -->
+    <section class="module" id="mod-architect" aria-label="Obix Architect">
+      <div class="arch-bar">
+        <p class="eyebrow">Obix Architect · Leadership Engine</p>
+    <ol class="stepper" id="stepper" aria-label="Progress">
+      <li data-step="0">1 · How You Are</li>
+      <li data-step="1">2 · Your Plan</li>
+      <li data-step="2">3 · Your Journey</li>
+    </ol>
+      </div>
+    <!-- ARCHITECT INTRO -->
+    <section class="screen" id="screen-intro" aria-labelledby="intro-h">
+      <p class="eyebrow">The Cognitive-Behavioral Pipeline</p>
+      <h1 id="intro-h">First, how you lead today. Then, the development plan you want.</h1>
+      <p class="lead">Every leadership action moves through four stages: how you take in information, how you react, how you decide and how you act.</p>
+      <div class="pipe" id="hero-pipe"></div>
+      <div class="parts">
+        <div class="part"><span class="part-n">1</span><div><b>How You Are</b><span>10 quick questions on how you take in information, react, decide and act. You see your profile right away.</span></div></div>
+        <div class="part"><span class="part-n">2</span><div><b>Your Development Plan</b><span>Choose your goal, your daily time and how you like to learn. Get your 4-week journey.</span></div></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="start-btn">Start: How You Are
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+        <span class="note">About 4 minutes in total.</span>
+      </div>
+    </section>
+
+    <!-- PART 1: QUESTIONS -->
+    <section class="screen" id="screen-quiz" aria-labelledby="quiz-h">
+      <p class="eyebrow">Part 1 · How You Are</p>
+      <h2 id="quiz-h">How do you take in information, react, decide and act?</h2>
+      <p class="lead" style="margin-bottom:20px">Pick what you actually tend to do, not what you think is ideal.</p>
+      <div class="progress-row"><span id="q-count" aria-live="polite">Question 1 of 10</span><span id="q-side"></span></div>
+      <div class="progress" aria-hidden="true"><span id="q-bar" style="width:0%"></span></div>
+      <div id="q-box"></div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="q-back">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+          Back
+        </button>
+      </div>
+    </section>
+
+    <!-- PART 1: PROFILE -->
+    <section class="screen" id="screen-profile" aria-labelledby="prof-h">
+      <div id="profile"></div>
+    </section>
+
+    <!-- PART 2: PLAN PREFERENCES -->
+    <section class="screen" id="screen-plan" aria-labelledby="plan-h">
+      <p class="eyebrow">Part 2 · Your Development Plan</p>
+      <h2 id="plan-h">How do you want your development plan?</h2>
+      <p class="lead" style="margin-bottom:24px">Your plan will target <b id="plan-focus" style="color:var(--amber)"></b>, the stage to develop first.</p>
+
+      <h3 class="q-label">1. Your main 90-day goal</h3>
+      <div class="goals" id="goal-list" role="group" aria-label="90-day goal"></div>
+      <p class="err" id="e-goal" aria-live="polite"></p>
+
+      <h3 class="q-label">2. Time you can give each day</h3>
+      <div class="seg" id="pace-list" role="group" aria-label="Daily time"></div>
+
+      <h3 class="q-label">3. How you like to learn</h3>
+      <div class="seg seg-3" id="format-list" role="group" aria-label="Learning format"></div>
+
+      <h3 class="q-label">4. Where should we send your plan?</h3>
+      <form class="card" id="lead-form" novalidate>
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-name">Full Name *</label>
+            <input id="f-name" name="name" autocomplete="name" required>
+            <span class="err" id="e-name" aria-live="polite"></span>
+          </div>
+          <div class="field">
+            <label for="f-contact">Email or WhatsApp Number *</label>
+            <input id="f-contact" name="email" autocomplete="email" inputmode="email" placeholder="you@company.com or +91 98765 43210" required>
+            <span class="err" id="e-contact" aria-live="polite"></span>
+          </div>
+          <div class="field">
+            <label for="f-role">Current Role / Title *</label>
+            <input id="f-role" name="role" autocomplete="organization-title" required>
+            <span class="err" id="e-role" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:4px">
+          <button class="btn btn-ghost" type="button" id="plan-back">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+            Back
+          </button>
+          <button class="btn btn-primary" type="submit" id="submit-btn">Create My Development Plan</button>
+          <button type="button" class="link-btn" id="skip-btn">Skip &amp; View My Journey</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- PART 2: JOURNEY -->
+    <section class="screen" id="screen-result" aria-labelledby="res-h">
+      <div id="result"></div>
+    </section>
+    </section>
+
+    <!-- ================= CURIOSITY LAB ================= -->
+    <section class="module" id="mod-lab" aria-label="Obix Curiosity Lab">
+      <div class="lx-container">
+    <!-- ==================== HOME HUB ==================== -->
+    <section id="lab-home" class="lx-screen">
+      <div class="lx-top-bar"><span class="lx-badge">Obix Curiosity Lab</span><button type="button" class="lx-home-link" onclick="suiteOpen('home')">← Suite home</button></div>
+      <h1>Explore Your Hidden Operating Patterns</h1>
+      <p>Pick a 2-minute interactive experiment below. No lectures—just real-world behavioral traps and root-cause clues.</p>
+
+      <button type="button" class="lx-mode-card" onclick="openGuessMode()">
+        <span class="lx-badge" style="margin-bottom:8px;">Experiment 01 • Self-Calibration</span>
+        <h2>Guess vs. Reality Engine</h2>
+        <p style="margin-bottom:0; font-size:14px;">Predict your own focus, calm, and problem-solving scores—then face 5 rapid traps to measure the gap between your self-image and actual behavior.</p>
+      </button>
+
+      <button type="button" class="lx-mode-card lx-detective" onclick="openDetectiveMode()">
+        <span class="lx-badge lx-badge-emerald" style="margin-bottom:8px;">Experiment 02 • Root-Cause Investigation</span>
+        <h2>Root-Cause Detective Lab</h2>
+        <p style="margin-bottom:0; font-size:14px;">Pick a recurring life or leadership bottleneck and trace backwards through 3 layers of clues to uncover the hidden system flaw causing it.</p>
+      </button>
+    </section>
+
+    <!-- ==================== MODE 1: GUESS VS REALITY ==================== -->
+    <section id="g-step-guess" class="lx-screen lx-hidden">
+      <div class="lx-top-bar">
+        <span class="lx-badge">Experiment 01 • Step 1 of 2</span>
+        <button type="button" class="lx-home-link" onclick="labHome()">← Back to Lab</button>
+      </div>
+      <h1>First, Guess Your Own Score</h1>
+      <p>Slide each bar (10% to 100%) to predict how consistently you execute these habits under real pressure.</p>
+
+      <div class="lx-slider-group">
+        <div class="lx-slider-header"><label for="guess-focus">1. Resisting Digital & Viral Distractions</label><span id="val-focus" style="color:var(--accent)">70%</span></div>
+        <input type="range" min="10" max="100" value="70" oninput="document.getElementById('val-focus').innerText=this.value+'%'" id="guess-focus" />
+      </div>
+
+      <div class="lx-slider-group">
+        <div class="lx-slider-header"><label for="guess-calm">2. Pausing Before Emotional Reactions</label><span id="val-calm" style="color:var(--accent)">70%</span></div>
+        <input type="range" min="10" max="100" value="70" oninput="document.getElementById('val-calm').innerText=this.value+'%'" id="guess-calm" />
+      </div>
+
+      <div class="lx-slider-group">
+        <div class="lx-slider-header"><label for="guess-root">3. Spotting Root Causes vs. Quick Fixes</label><span id="val-root" style="color:var(--accent)">70%</span></div>
+        <input type="range" min="10" max="100" value="70" oninput="document.getElementById('val-root').innerText=this.value+'%'" id="guess-root" />
+      </div>
+
+      <button class="lx-btn" onclick="startTraps()">Lock In Guesses & Test Reality →</button>
+    </section>
+
+    <section id="g-step-traps" class="lx-screen lx-hidden">
+      <div class="lx-top-bar">
+        <span class="lx-badge" id="trap-counter">Trap 1 of 5</span>
+        <button type="button" class="lx-home-link" onclick="labHome()">← Back to Lab</button>
+      </div>
+      <h2 id="trap-title"></h2>
+      <p id="trap-desc"></p>
+      <div id="trap-choices" role="group" aria-label="Your response"></div>
+    </section>
+
+    <section id="g-step-gate" class="lx-screen lx-hidden">
+      <span class="lx-badge">Gap Calculated</span>
+      <h1 style="margin-top:12px;">Your Illusion vs. Reality Report Is Ready</h1>
+      <p>Enter your details to log your research data and reveal where your self-image differs from your instinctive actions.</p>
+      <label class="lx-field-label" for="g-name">First Name</label>
+      <input type="text" id="g-name" placeholder="First Name" autocomplete="given-name" />
+      <label class="lx-field-label" for="g-contact">Email or WhatsApp Number</label>
+      <input type="text" id="g-contact" placeholder="Email or WhatsApp Number" autocomplete="email" />
+      <div class="lx-error" id="g-error" aria-live="polite"></div>
+      <button class="lx-btn" onclick="submitGuessData(false)">Reveal My Reality Gap →</button>
+      <button type="button" class="lx-link-btn" onclick="submitGuessData(true)">Skip & View Report</button>
+    </section>
+
+    <section id="g-step-result" class="lx-screen lx-hidden">
+      <span class="lx-badge">Illusion vs. Reality Audit</span>
+      <h1 id="g-result-headline" style="margin-top:12px;">Your Prediction Gap</h1>
+      <div class="lx-legend"><span><i style="background:var(--accent)"></i>Your guess</span><span><i style="background:var(--emerald)"></i>Your reality</span></div>
+      <div id="comparison-bars"></div>
+      <div class="lx-compare-row" style="border-left: 3px solid var(--amber);">
+        <strong style="color:var(--amber); font-size:12px; text-transform:uppercase;">Primary Self-Illusion Insight</strong>
+        <p id="illusion-insight" style="color:var(--text); margin-top:6px; margin-bottom:0;"></p>
+      </div>
+      <button class="lx-btn lx-btn-emerald" onclick="openDetectiveMode()">Next: Solve a Root-Cause Mystery →</button>
+      <button class="lx-btn lx-btn-outline" onclick="suiteOpen('architect')">Build My 4-Week Plan in Obix Architect →</button>
+      <button class="lx-btn lx-btn-outline" onclick="labHome()">Back to Obix Lab</button>
+    </section>
+
+    <!-- ==================== MODE 2: ROOT-CAUSE DETECTIVE ==================== -->
+    <section id="d-step-select" class="lx-screen lx-hidden">
+      <div class="lx-top-bar">
+        <span class="lx-badge lx-badge-emerald">Experiment 02 • Case Selection</span>
+        <button type="button" class="lx-home-link" onclick="labHome()">← Back to Lab</button>
+      </div>
+      <h1>Pick a Behavioral Mystery to Solve</h1>
+      <p>Select one recurring friction point below and trace the clues backwards from surface symptom to core system flaw.</p>
+
+      <button type="button" class="lx-mode-card lx-detective" onclick="startCase(0)">
+        <strong style="color:var(--emerald); font-size:12px;">CASE #01 • FOCUS & PROCRASTINATION</strong>
+        <h2 style="margin-top:4px; margin-bottom:4px;">The Mystery of the Vanishing Evening</h2>
+        <p style="margin-bottom:0; font-size:14px;">You plan to work on an important personal goal at 8 PM, yet by 10 PM nothing is done. Why?</p>
+      </button>
+
+      <button type="button" class="lx-mode-card lx-detective" onclick="startCase(1)">
+        <strong style="color:var(--emerald); font-size:12px;">CASE #02 • LEADERSHIP & CONTROL</strong>
+        <h2 style="margin-top:4px; margin-bottom:4px;">The Mystery of the Dependent Team</h2>
+        <p style="margin-bottom:0; font-size:14px;">Others constantly wait for your approval, leaving you exhausted and stuck in firefighting. Why?</p>
+      </button>
+
+      <button type="button" class="lx-mode-card lx-detective" onclick="startCase(2)">
+        <strong style="color:var(--emerald); font-size:12px;">CASE #03 • EMOTIONAL FRICTION</strong>
+        <h2 style="margin-top:4px; margin-bottom:4px;">The Mystery of the Instant Overreaction</h2>
+        <p style="margin-bottom:0; font-size:14px;">One small remark ruins your mood for three hours even when you know it shouldn't. Why?</p>
+      </button>
+    </section>
+
+    <section id="d-step-investigate" class="lx-screen lx-hidden">
+      <div class="lx-top-bar">
+        <span class="lx-badge lx-badge-emerald" id="layer-badge">Clue Layer 1 of 3</span>
+        <button type="button" class="lx-home-link" onclick="labHome()">← Back to Lab</button>
+      </div>
+      <div class="lx-evidence-trail" id="trail-box"><strong>Case File Open:</strong> Tracing root cause...</div>
+      <h2 id="layer-question"></h2>
+      <p class="lx-hint" id="layer-hint"></p>
+      <div id="layer-options" role="group" aria-label="Your answer"></div>
+    </section>
+
+    <section id="d-step-gate" class="lx-screen lx-hidden">
+      <span class="lx-badge lx-badge-emerald">Root Cause Unlocked</span>
+      <h1 style="margin-top:12px;">Case Solved — Unlock Your Fix Rule</h1>
+      <p>Enter your details to log your case findings and view your tailored Root-Cause Operating Rule.</p>
+      <label class="lx-field-label" for="d-name">First Name</label>
+      <input type="text" id="d-name" placeholder="First Name" autocomplete="given-name" />
+      <label class="lx-field-label" for="d-contact">Email or WhatsApp Number</label>
+      <input type="text" id="d-contact" placeholder="Email or WhatsApp Number" autocomplete="email" />
+      <div class="lx-error" id="d-error" aria-live="polite"></div>
+      <button class="lx-btn lx-btn-emerald" onclick="finishCase(false)">Unlock Root-Cause Rule →</button>
+      <button type="button" class="lx-link-btn" onclick="finishCase(true)">Skip & View Solution</button>
+    </section>
+
+    <section id="d-step-dossier" class="lx-screen lx-hidden">
+      <span class="lx-badge lx-badge-emerald">Case Dossier Closed</span>
+      <h1 id="dossier-title" style="margin-top:12px;">Root Cause Identified</h1>
+      <div class="lx-evidence-trail" id="final-chain"></div>
+      <div class="lx-rule-box">
+        <strong>Your Root-Cause Operating Rule</strong>
+        <p id="fix-rule"></p>
+      </div>
+      <button class="lx-btn" onclick="openGuessMode()">Next: Test Guess vs. Reality →</button>
+      <button class="lx-btn lx-btn-outline" onclick="suiteOpen('architect')">Build My 4-Week Plan in Obix Architect →</button>
+      <button class="lx-btn lx-btn-outline" onclick="labHome()">Back to Obix Lab</button>
+    </section>
+      </div>
+    </section>
+  </main>
+
+  <footer>Obix Suite · Integrates Indriyas, Manas &amp; Buddhi with Jungian functions, Kahneman’s System 1/2, Stoic assent and DISC.</footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ============ CONFIG ============ */
+const WEBHOOK_URL = "YOUR_GOOGLE_SCRIPT_WEB_APP_URL_HERE";
+
+/* ============ DATA ============ */
+const STAGES = {
+  intake:  { n:1, name:"Data Intake",      sub:"Perception",       journey:"Signal Clarity Journey",
+    weak:"You tend to act on the first story rather than the full signal. Everything downstream (reaction, judgment, behavior) inherits a narrow or distorted picture of reality.",
+    strong:"You read situations widely before reacting. Use this clear signal to slow down and feed better data to the stage that is holding you back." },
+  filter:  { n:2, name:"Reactive Filter",  sub:"Fast Mind · Manas", journey:"Reactive-to-Responsive Reset",
+    weak:"Under pressure, ego and threat responses (Manas / System 1) take the wheel before judgment can engage. It shows up as control, defensiveness or false urgency.",
+    strong:"You hold steady under pressure. Use that calm as the space where better judgment and delegation can happen." },
+  discern: { n:3, name:"Discernment",      sub:"Slow Mind · Buddhi", journey:"Discernment & Second-Order Thinking Journey",
+    weak:"Speed, optics or novelty bypass your judgment layer. Second-order risks go unexamined before you commit.",
+    strong:"You test logic and consequences well. Turn that rigor into simple decision rules your team can reuse." },
+  output:  { n:4, name:"Behavioral Output", sub:"DISC · Authority",   journey:"Delegation & Earned Authority Journey",
+    weak:"Good thinking stalls at execution: you default to doing, fixing or controlling instead of designing systems and growing others’ agency.",
+    strong:"You turn intent into empowering action. Model it visibly so others learn the full pipeline from you." }
+};
+const ORDER = ["intake","filter","discern","output"];
+
+const GOALS = [
+  { id:"strategic",    title:"Transition from Tactical Manager to Strategic Systems Leader",   short:"Strategic Systems Leader", focus:"intake" },
+  { id:"firefighting", title:"Eliminate Firefighting, Micromanagement & Reactive Stress",       short:"End Firefighting & Micromanagement", focus:"filter" },
+  { id:"ai",           title:"Build High-Agency Judgment & Leverage in an AI-Driven Workplace", short:"High-Agency AI-Era Judgment", focus:"discern" },
+  { id:"conflict",     title:"Master Calm Conflict Resolution & Earned Authority",              short:"Calm Conflict & Earned Authority", focus:"output" }
+];
+
+const SCENARIOS = [
+  { stages:["intake"], label:"Data Intake · Perception",
+    prompt:"A key team metric drops unexpectedly.",
+    options:[ {text:"Jump immediately to blame the nearest person or tool.", pts:1},
+              {text:"Gather raw data across the full workflow to spot the hidden pattern before speaking.", pts:3} ] },
+  { stages:["filter"], label:"Reactive Filter · Manas vs. Pause",
+    prompt:"A stakeholder challenges your authority in a group meeting.",
+    options:[ {text:"Shut them down quickly to protect your image in the room.", pts:1},
+              {text:"Notice the ego spike, pause 5 seconds, and ask them to clarify the specific risk they see.", pts:3} ] },
+  { stages:["discern"], label:"Discernment · Buddhi & Logic",
+    prompt:"A vendor or colleague pitches an urgent AI shortcut that promises instant results.",
+    options:[ {text:"Adopt it fast so you look innovative to senior leadership.", pts:1},
+              {text:"Audit the second-order risks, data privacy, and long-term skill impact before committing.", pts:3} ] },
+  { stages:["output"], label:"Behavioral Output · DISC & Control",
+    prompt:"A direct report brings you a messy problem they caused.",
+    options:[ {text:"Take over the task yourself to ensure it gets done right and fast.", pts:1},
+              {text:"Set clear guardrails and coach them to design and execute the fix themselves.", pts:3} ] },
+  { stages:["intake","discern"], label:"Data Intake & Discernment",
+    prompt:"Your weekly calendar is packed with back-to-back meetings, leaving zero deep work time.",
+    options:[ {text:"Accept it as the price of being an important, busy leader.", pts:1},
+              {text:"Audit recurring meetings, cancel low-value status calls, and block protected strategy hours.", pts:3} ] },
+  { stages:["filter","output"], label:"Reactive Filter & Output",
+    prompt:"A major project deadline slips due to shifting requirements.",
+    options:[ {text:"Demand weekend overtime from everyone to force the original date.", pts:1},
+              {text:"Re-align scope transparently with stakeholders and adjust the system to prevent repeat scope creep.", pts:3} ] }
+];
+
+const WEEK_THEMES = ["Awareness & Diagnostic Audit","Cognitive Reframing","The Non-Negotiable IF-THEN Operating Rule","Systems Integration & Verification Metric"];
+
+const JOURNEY = {
+  intake: [
+    { title:"The First-Story Log", body:"Every day, each time a problem surfaces, write down the first explanation your mind offers and the data you actually had at that moment. At day’s end, mark how many stories rested on a single data point.", kLabel:"Daily observation task", k:"Log at least 3 first stories per day; tally single-source conclusions." },
+    { title:"The Map Is Not the Territory", body:"Your first read is a map, not reality. Treat every diagnosis as a hypothesis until the wider signal confirms it.", kLabel:"Assumption test", k:"Before naming any cause, list three alternative explanations and the one data source that would disprove your favorite." },
+    { title:"Full-Signal Rule", rIf:"a metric or problem surprises me,", rThen:"I pull the raw data across the full workflow and speak to two people closest to the work before I state a cause." },
+    { title:"Install a Weekly Signal Review", body:"Run a 20-minute weekly review with your team covering leading indicators, not just lagging results.", kLabel:"Verification metric", k:"Mastery = every root-cause claim you make in the final two weeks cites at least two independent data sources." }
+  ],
+  filter: [
+    { title:"The Trigger Journal", body:"Three times a day, log any ego spike (defensiveness, urge to control, irritation): the trigger, the body signal, what you said, and what you wish you had said.", kLabel:"Daily observation task", k:"Capture 3 entries daily; circle the trigger that repeats most." },
+    { title:"Stimulus · Pause · Response (Stoic Assent)", body:"An impression is not a fact until you assent to it. The gap between stimulus and response is where leadership lives.", kLabel:"Assumption test", k:"When triggered, ask: “What threat to my status am I assuming, and what is the evidence?”" },
+    { title:"The 5-Second Pause Rule", rIf:"I feel heat, tightness or the urge to interrupt,", rThen:"I take one slow breath, count five seconds, and ask one clarifying question before stating a position." },
+    { title:"Peer-Verified Composure", body:"Hold a weekly 15-minute reaction review with a trusted peer or coach, walking through your hardest moment of the week.", kLabel:"Verification metric", k:"Mastery = in the final week, you paused and asked before acting in most logged high-pressure moments, confirmed by one observer." }
+  ],
+  discern: [
+    { title:"The Decision Audit", body:"Each day, record one decision: the options you saw, the information used, and how fast you committed. Flag any decision made to look good rather than to be right.", kLabel:"Daily observation task", k:"One decision logged per day; note speed vs. stakes." },
+    { title:"Second-Order Thinking: “And Then What?”", body:"First-order effects are obvious; leverage and risk live in the second and third order.", kLabel:"Assumption test", k:"Run a pre-mortem on one pending decision: assume it failed in six months and write the three most likely reasons." },
+    { title:"The Urgency Brake", rIf:"a decision is urgent, hard to reverse, or promises instant results,", rThen:"I write down its second-order risks and one disconfirming view before I commit." },
+    { title:"One-Page Decision Memo", body:"Adopt a short template for significant decisions: options, risks, reversibility, and a review date.", kLabel:"Verification metric", k:"Mastery = every significant decision in the final two weeks is documented, with a review date to compare predicted vs. actual outcomes." }
+  ],
+  output: [
+    { title:"The Control Audit", body:"Each day, list every task you did that a direct report could have done, and why you took it back: speed, quality or fear.", kLabel:"Daily observation task", k:"Tally take-backs daily; tag each with its reason." },
+    { title:"Leader as Designer, Not Doer", body:"Your job is to design the system that produces the result, matching support to each person’s capability (situational leadership).", kLabel:"Assumption test", k:"Name one task you believe “only I can do right.” Ask the person closest to it for their approach before you judge." },
+    { title:"Ask-First Rule", rIf:"someone brings me a problem,", rThen:"I ask “What do you recommend?” and agree on guardrails and a checkpoint before offering my own solution." },
+    { title:"Delegate One Outcome End-to-End", body:"Hand over one meaningful outcome, not just a task, with clear guardrails and checkpoints.", kLabel:"Verification metric", k:"Mastery = your team resolves issues for two consecutive weeks without you taking over, and take-backs fall well below your Week 1 count." }
+  ]
+};
+
+const GOAL_LENS = {
+  strategic: [
+    "Tag every logged item as tactical or strategic and note your weekly ratio.",
+    "Apply the reframe to one recurring problem: find its structural cause, not its latest instance.",
+    "Practice the rule inside two protected strategy hours each week.",
+    "90-day signal: a rising share of your calendar goes to strategic work, compared with your Week 1 ratio."
+  ],
+  firefighting: [
+    "Count the fires you fight each day and mark the ones that repeat.",
+    "Take your most frequent fire and ask what system allows it to recur.",
+    "Apply the rule first in every ‘urgent’ escalation this week.",
+    "90-day signal: repeat fires fall week over week from your Week 1 count."
+  ],
+  ai: [
+    "Note every time you accepted AI or tool output without checking its source or assumptions.",
+    "Use the reframe on one AI-generated recommendation: what would make it wrong?",
+    "Apply the rule to every AI shortcut, automation or vendor proposal you review.",
+    "90-day signal: a documented AI-use guardrail your team follows, plus decisions where you added judgment beyond the tool."
+  ],
+  conflict: [
+    "Log every disagreement: who, the trigger, and whether you argued for position or for understanding.",
+    "Apply the reframe to one tense relationship: what is the other person protecting?",
+    "Use the rule in every conflict conversation this week.",
+    "90-day signal: stakeholders bring disagreements to you earlier and more directly; ask two of them to confirm."
+  ]
+};
+
+
+
+/* ---------- PART 1 · HOW YOU ARE ----------
+   One style question per stage (how you operate; h = 0 reactive · 1 partial · 2 systems),
+   followed by the core scenarios for that stage (1 pt reactive · 3 pts systems). */
+const STYLE_Q = {
+  intake: { prompt:"When you walk into a new problem, what do you notice first?", options:[
+    { text:"The hard numbers, facts and specifics of what happened.", style:"fact", h:2 },
+    { text:"The bigger pattern: how this connects to other trends.", style:"pattern", h:2 },
+    { text:"How people are reacting, and what they are not saying.", style:"people", h:2 },
+    { text:"Whatever is most urgent or loudest right now.", style:"first", h:0 } ] },
+  filter: { prompt:"Someone criticizes your work in front of others. Your first internal reaction is to…", options:[
+    { text:"Push back hard and regain control of the conversation.", style:"control", h:0 },
+    { text:"Go quiet, then mentally pick apart their argument.", style:"protect", h:0 },
+    { text:"Smooth it over and agree, to keep the peace.", style:"comply", h:0 },
+    { text:"Notice the sting, then get curious about their point.", style:"pause", h:2 } ] },
+  discern: { prompt:"When making an important decision, you mostly rely on…", options:[
+    { text:"Gut instinct and speed; momentum matters most.", style:"gut", h:1 },
+    { text:"Evidence that supports the direction I already favor.", style:"confirm", h:0 },
+    { text:"More and more analysis until I feel fully ready.", style:"paralysis", h:1 },
+    { text:"Breaking the problem into first principles and testing assumptions.", style:"principles", h:2 } ] },
+  output: { prompt:"Your natural leadership style is closest to…", options:[
+    { text:"Direct and results-driven: set the target and push.", style:"D", h:1 },
+    { text:"Energizing and persuasive: rally people around the vision.", style:"I", h:1 },
+    { text:"Steady and supportive: keep the team stable and cared for.", style:"S", h:1 },
+    { text:"Precise and systematic: get the process and quality right.", style:"C", h:1 } ] }
+};
+
+// Question order: each stage's style question, then its scenario(s). Scenarios 5 and 6 cover two stages each.
+const PART1 = [
+  { kind:"style", stage:"intake",  ...STYLE_Q.intake },
+  { kind:"scenario", ...SCENARIOS[0] },
+  { kind:"style", stage:"filter",  ...STYLE_Q.filter },
+  { kind:"scenario", ...SCENARIOS[1] },
+  { kind:"style", stage:"discern", ...STYLE_Q.discern },
+  { kind:"scenario", ...SCENARIOS[2] },
+  { kind:"style", stage:"output",  ...STYLE_Q.output },
+  { kind:"scenario", ...SCENARIOS[3] },
+  { kind:"scenario", ...SCENARIOS[4] },
+  { kind:"scenario", ...SCENARIOS[5] }
+];
+
+const STYLES = {
+  intake: {
+    fact:    { name:"Fact Collector (Sensing)", desc:"You trust concrete, verifiable detail and what can be measured.", dev:"Zoom out: connect details to the larger pattern before concluding." },
+    pattern: { name:"Pattern Seeker (Intuition)", desc:"You read trends, connections and future possibilities.", dev:"Ground your patterns in hard data before you act on them." },
+    people:  { name:"People Reader", desc:"You pick up human signals, moods and unspoken dynamics.", dev:"Pair human signals with hard evidence before forming a view." },
+    first:   { name:"First-Signal Reactor", desc:"You tend to lock onto the first or loudest signal (tunnel vision).", dev:"Widen your intake: gather the full workflow before forming a story." }
+  },
+  filter: {
+    control: { name:"Controller", desc:"Under threat, you tighten control and push back.", dev:"Build the pause; replace control with curiosity." },
+    protect: { name:"Protector", desc:"Under threat, you withdraw, judge or go cold.", dev:"Stay engaged; turn private critique into open questions." },
+    comply:  { name:"Pleaser", desc:"Under threat, you accommodate to keep the peace.", dev:"Voice your view and hold a boundary calmly." },
+    pause:   { name:"Regulated Responder", desc:"You notice the trigger and choose your response.", dev:"Keep it up, and model the pause visibly for your team." }
+  },
+  discern: {
+    gut:        { name:"Rapid Intuitive", desc:"You decide fast and trust your instincts.", dev:"Add a second-order check before any hard-to-reverse call." },
+    confirm:    { name:"Confirmation Seeker", desc:"You look for evidence that supports your existing view.", dev:"Actively seek the strongest disconfirming evidence." },
+    paralysis:  { name:"Over-Analyzer", desc:"You keep gathering analysis and delay commitment.", dev:"Set decision deadlines and commit once the key risks are understood." },
+    principles: { name:"First-Principles Thinker", desc:"You break problems down and test the assumptions underneath.", dev:"Turn your reasoning into simple decision rules your team can reuse." }
+  },
+  output: {
+    D: { name:"Driver (DISC: D)", desc:"Direct, fast and results-first. Under pressure, this can tip into commanding and micromanaging.", dev:"Shift from directing to designing: delegate outcomes with clear guardrails." },
+    I: { name:"Influencer (DISC: I)", desc:"Persuasive, energizing and people-first. Under pressure, this can tip into overpromising.", dev:"Pair inspiration with clear ownership, checkpoints and follow-through." },
+    S: { name:"Steady Supporter (DISC: S)", desc:"Calm, loyal and supportive. Under pressure, this can tip into avoiding hard calls.", dev:"Have the hard conversation early; let others own their fixes." },
+    C: { name:"Precision Planner (DISC: C)", desc:"Systematic and quality-focused. Under pressure, this can tip into perfectionism and over-control.", dev:"Define “good enough” standards and let the system, not you, hold quality." }
+  }
+};
+
+/* ---------- PART 2 · HOW YOU WANT YOUR PLAN ---------- */
+const PACES = [
+  { id:"10", label:"10 min / day", note:"10 minutes a day: do each week’s core task only." },
+  { id:"20", label:"20 min / day", note:"20 minutes a day: the core task plus a short end-of-day reflection." },
+  { id:"30", label:"30+ min / day", note:"30+ minutes a day: the core task, a reflection and one extra practice rep." }
+];
+const FORMATS = [
+  { id:"solo",  label:"On my own", sub:"Self-paced practice and reflection",
+    support:[ "Friday self-review: read back your log and note one pattern.",
+              "Write a short reframe note to yourself before each key meeting.",
+              "Put your IF-THEN rule on your phone lock screen and tick each use.",
+              "Score yourself on the metric and plan your next 30 days." ] },
+  { id:"coach", label:"With a coach or mentor", sub:"1:1 guidance and accountability",
+    support:[ "Share your Week 1 log with your coach or mentor and ask what they notice.",
+              "Practice the reframe out loud in a coaching session.",
+              "Ask your coach to hold you to the IF-THEN rule with a mid-week check-in.",
+              "Review the metric together and agree on your next 60-day focus." ] },
+  { id:"team",  label:"With my team", sub:"Learn in the flow of work",
+    support:[ "Tell your team what you are observing in yourself and ask for one example they have seen.",
+              "Use the reframe in a team discussion of a live problem.",
+              "Share your IF-THEN rule with the team and invite them to call it out.",
+              "Ask the team to rate the change and agree on one system improvement together." ] }
+];
+
+/* ============ STATE ============ */
+const state = { answers:[], order:[], q:0, how:null, goal:null, pace:"20", format:"solo", lead:null, result:null };
+
+/* ============ HELPERS ============ */
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let svgCount = 0;
+
+function shuffled(n){
+  const a = [...Array(n).keys()];
+  for (let i = n - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+const goalObj = () => GOALS.find(g => g.id === state.goal);
+// Lowest stage; ties go upstream first, because an upstream break cascades downstream
+function pickLowest(scores){ return [...ORDER].sort((a,b) => (scores[a] - scores[b]) || (ORDER.indexOf(a) - ORDER.indexOf(b)))[0]; }
+function pickHighest(scores, exclude){
+  return ORDER.filter(k => k !== exclude).sort((a,b) => (scores[b] - scores[a]) || (ORDER.indexOf(b) - ORDER.indexOf(a)))[0];
+}
+function levelOf(p){
+  return p >= .75 ? { name:"Strength", c:"emerald" } : p >= .45 ? { name:"Developing", c:"cyan" } : { name:"Development Need", c:"amber" };
+}
+const TIER_COLOR = { emerald:["rgba(16,185,129,.14)","#10b981"], cyan:["rgba(56,189,248,.14)","#38bdf8"], amber:["rgba(245,158,11,.14)","#f59e0b"] };
+
+function show(id, step){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $("#"+id).classList.add("active");
+  document.querySelectorAll("#stepper li").forEach(li => {
+    const n = +li.dataset.step;
+    li.classList.toggle("on", n === step);
+    li.classList.toggle("done", n < step);
+    if (n === step) li.setAttribute("aria-current","step"); else li.removeAttribute("aria-current");
+  });
+  window.scrollTo({ top:0, behavior:"smooth" });
+}
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+/* ============ PIPELINE SVG ============ */
+function pipelineSVG({ bottleneck=null, strongest=null, vertical=false } = {}){
+  const id = "p" + (++svgCount);
+  const colorFor = k => k === bottleneck ? "#f59e0b" : k === strongest ? "#10b981" : "#38bdf8";
+  const fillFor  = k => k === bottleneck ? "rgba(245,158,11,0.10)" : k === strongest ? "rgba(16,185,129,0.10)" : "#131926";
+  const tagFor   = k => k === bottleneck ? "BOTTLENECK" : k === strongest ? "STRONGEST" : "";
+  let W, H, nodes = [], arrows = [];
+  if (!vertical){
+    W = 960; H = 190; const w = 196, h = 120, gap = (W - 40 - 4*w) / 3;
+    ORDER.forEach((k,i) => nodes.push({ k, x: 20 + i*(w+gap), y: 40, w, h }));
+    for (let i=0;i<3;i++){ const a = nodes[i], b = nodes[i+1];
+      arrows.push({ x1:a.x+a.w+6, y1:a.y+a.h/2, x2:b.x-8, y2:b.y+b.h/2, k:a.k }); }
+  } else {
+    W = 360; const w = 320, h = 96, gap = 44; H = 20 + 4*h + 3*gap + 20;
+    ORDER.forEach((k,i) => nodes.push({ k, x: 20, y: 20 + i*(h+gap), w, h }));
+    for (let i=0;i<3;i++){ const a = nodes[i], b = nodes[i+1];
+      arrows.push({ x1:a.x+a.w/2, y1:a.y+a.h+6, x2:b.x+b.w/2, y2:b.y-8, k:a.k }); }
+  }
+  const markers = ["#38bdf8","#f59e0b","#10b981"].map((c,i) =>
+    `<marker id="${id}m${i}" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${c}"/></marker>`).join("");
+  const mIdx = c => c === "#f59e0b" ? 1 : c === "#10b981" ? 2 : 0;
+  const arrowSVG = arrows.map(a => {
+    const c = colorFor(a.k) === "#38bdf8" ? "#38bdf8" : colorFor(a.k);
+    return `<line x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" stroke="${c}" stroke-width="2.5" class="flow" marker-end="url(#${id}m${mIdx(c)})" opacity="0.9"/>`;
+  }).join("");
+  const nodeSVG = nodes.map(n => {
+    const s = STAGES[n.k], c = colorFor(n.k), tag = tagFor(n.k), cx = n.x + n.w/2;
+    const glow = tag ? `<rect x="${n.x-4}" y="${n.y-4}" width="${n.w+8}" height="${n.h+8}" rx="16" fill="none" stroke="${c}" stroke-width="1.5" class="pulse"/>` : "";
+    const tagSVG = tag ? `<rect x="${cx-46}" y="${n.y-11}" width="92" height="22" rx="6" fill="${c}"/><text x="${cx}" y="${n.y+4}" text-anchor="middle" font-size="10.5" font-weight="800" letter-spacing="1.4" fill="#0b0f17">${tag}</text>` : "";
+    const ty = vertical ? n.y + 40 : n.y + 50;
+    return `<g>${glow}<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="12" fill="${fillFor(n.k)}" stroke="${c}" stroke-width="1.6"/>
+      <text x="${cx}" y="${ty}" text-anchor="middle" font-size="12" font-weight="700" letter-spacing="2" fill="${c}">STAGE ${s.n}</text>
+      <text x="${cx}" y="${ty+26}" text-anchor="middle" font-size="19" font-weight="800" fill="#e6edf7">${s.name}</text>
+      <text x="${cx}" y="${ty+48}" text-anchor="middle" font-size="13" fill="#94a3b8">${s.sub}</text>${tagSVG}</g>`;
+  }).join("");
+  const label = "Four-stage pipeline: Data Intake, Reactive Filter, Discernment, Behavioral Output" +
+    (bottleneck ? `. Bottleneck: ${STAGES[bottleneck].name}.` : "") + (strongest ? ` Strongest: ${STAGES[strongest].name}.` : "");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}" font-family="-apple-system,BlinkMacSystemFont,Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><defs>${markers}</defs>${arrowSVG}${nodeSVG}</svg>`;
+}
+function pipelineBlock(opts){
+  return `<div class="pipe-h">${pipelineSVG({ ...opts, vertical:false })}</div><div class="pipe-v">${pipelineSVG({ ...opts, vertical:true })}</div>`;
+}
+
+/* ============ PART 1 · HOW YOU ARE ============ */
+let quizLocked = false;
+
+function startQuiz(){
+  state.answers = Array(PART1.length).fill(null);
+  state.order = PART1.map(it => shuffled(it.options.length));
+  state.q = 0;
+  renderQuestion();
+  show("screen-quiz", 0);
+}
+
+function renderQuestion(){
+  const i = state.q, it = PART1[i];
+  $("#q-count").textContent = `Question ${i+1} of ${PART1.length}`;
+  $("#q-side").textContent = it.kind === "style" ? "Your style" : "Your choice";
+  $("#q-bar").style.width = (i / PART1.length * 100) + "%";
+  const chip = it.kind === "style" ? `Stage ${STAGES[it.stage].n} · ${STAGES[it.stage].name}` : it.label;
+  const keys = "ABCD";
+  const opts = state.order[i].map((oi, pos) =>
+    `<button type="button" class="option" data-oi="${oi}" aria-pressed="${state.answers[i] === oi}">
+      <span class="opt-key">${keys[pos]}</span><span class="opt-text">${esc(it.options[oi].text)}</span></button>`).join("");
+  $("#q-box").innerHTML = `<div class="scenario-box">
+      <div class="chips"><span class="chip">${esc(chip)}</span></div>
+      <p class="scenario-prompt">${esc(it.prompt)}</p>
+      <div class="options" role="group" aria-label="Your answer">${opts}</div></div>`;
+  $("#q-box").querySelectorAll(".option").forEach(b => b.addEventListener("click", () => {
+    if (quizLocked) return;
+    quizLocked = true;
+    state.answers[i] = +b.dataset.oi;
+    $("#q-box").querySelectorAll(".option").forEach(x => x.setAttribute("aria-pressed", x === b));
+    $("#q-bar").style.width = ((i+1) / PART1.length * 100) + "%";
+    setTimeout(() => {
+      quizLocked = false;
+      if (i < PART1.length - 1){ state.q++; renderQuestion(); }
+      else { state.how = computeHow(); renderProfile(); }
+    }, 380);
+  }));
+}
+
+function computeHow(){
+  const tot = {}, n = {}, styleH = {}, style = {};
+  ORDER.forEach(k => { tot[k] = 0; n[k] = 0; });
+  let totalScore = 0;
+  PART1.forEach((it, i) => {
+    const o = it.options[state.answers[i]];
+    if (it.kind === "scenario"){ totalScore += o.pts; it.stages.forEach(k => { tot[k] += o.pts; n[k]++; }); }
+    else { styleH[it.stage] = o.h / 2; style[it.stage] = o.style; }
+  });
+  const scen = {}, score = {}, level = {};
+  ORDER.forEach(k => {
+    scen[k] = (tot[k] - n[k]) / (2 * n[k]);           // 0 = all reactive choices, 1 = all systems choices
+    score[k] = 0.75 * scen[k] + 0.25 * styleH[k];     // scenarios weigh most; style adds nuance
+    level[k] = levelOf(score[k]);
+  });
+  const bottleneck = pickLowest(score);
+  const strongest = pickHighest(score, bottleneck);
+  const tier = totalScore >= 15 ? { name:"Systems Leader", c:"emerald" }
+             : totalScore >= 10 ? { name:"Transitional Leader", c:"cyan" }
+             : { name:"Reactive Operator", c:"amber" };
+  const allEqual = ORDER.every(k => score[k] === score[ORDER[0]]);
+  return { tot, n, scen, score, level, style, bottleneck, strongest, totalScore, tier, allEqual };
+}
+const styleOf = (h, k) => STYLES[k][h.style[k]];
+
+function renderProfile(){
+  const h = state.how, tc = TIER_COLOR[h.tier.c];
+  const cards = ORDER.map(k => {
+    const sty = styleOf(h, k), cls = k === h.bottleneck ? " amber" : k === h.strongest ? " emerald" : "";
+    return `<div class="card stage-card${cls}">
+      <div class="stage-head"><span class="stage-k">Stage ${STAGES[k].n} · ${STAGES[k].name}</span><span class="tag ${h.level[k].c}">${h.level[k].name}</span></div>
+      <h3>${esc(sty.name)}</h3>
+      <p>${esc(sty.desc)}</p>
+    </div>`;
+  }).join("");
+  const b = h.bottleneck, s = h.strongest;
+  $("#profile").innerHTML = `
+    <div class="result-head">
+      <div>
+        <p class="eyebrow">Part 1 complete · How You Are</p>
+        <h1 id="prof-h">How you lead, from input to action</h1>
+        <p class="lead" style="margin:0">How you take in information, react, decide and act today.</p>
+      </div>
+      <div class="score-badge">
+        <div class="score-num">${h.totalScore}<small> / 18</small></div>
+        <span class="tier" style="background:${tc[0]};color:${tc[1]}">${h.tier.name}</span>
+      </div>
+    </div>
+    <div class="pipe">${pipelineBlock({ bottleneck:b, strongest:s })}</div>
+    <div class="legend"><span><i style="background:#f59e0b"></i>Develop first</span><span><i style="background:#10b981"></i>Your strength</span><span><i style="background:#38bdf8"></i>Other stages</span></div>
+    <div class="grid-2">
+      <div class="card insight amber">
+        <h3><span class="tag amber">Develop first</span> Stage ${STAGES[b].n}: ${STAGES[b].name}</h3>
+        <p>${h.allEqual ? "Your stages scored evenly, so start where the pipeline begins. " : ""}${STAGES[b].weak}</p>
+        <div class="kv"><b>Your pattern · ${esc(styleOf(h, b).name)}</b>${esc(styleOf(h, b).dev)}</div>
+      </div>
+      <div class="card insight emerald">
+        <h3><span class="tag emerald">Your strength</span> Stage ${STAGES[s].n}: ${STAGES[s].name}</h3>
+        <p>${STAGES[s].strong}</p>
+      </div>
+    </div>
+    <h2>Your style at each stage</h2>
+    <div class="grid-2">${cards}</div>
+    <div class="actions">
+      <button class="btn btn-primary" id="to-plan">Next: How Do You Want Your Plan?
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+      <button class="btn btn-ghost" id="redo">Retake Part 1</button>
+    </div>`;
+  $("#to-plan").addEventListener("click", renderPlan);
+  $("#redo").addEventListener("click", startQuiz);
+  show("screen-profile", 0);
+}
+
+/* ============ PART 2 · HOW YOU WANT YOUR PLAN ============ */
+function renderPlan(){
+  const b = state.how.bottleneck;
+  $("#plan-focus").textContent = `Stage ${STAGES[b].n}: ${STAGES[b].name}`;
+  $("#goal-list").innerHTML = GOALS.map((g,i) =>
+    `<button type="button" class="goal" data-id="${g.id}" aria-pressed="${state.goal===g.id}">
+       <span class="goal-num">${i+1}</span>
+       <span class="goal-body">${g.focus === b ? `<span class="rec">Best match for you</span>` : ""}<span class="goal-title">${esc(g.title)}</span></span></button>`).join("");
+  $("#pace-list").innerHTML = PACES.map(p =>
+    `<button type="button" class="seg-btn" data-id="${p.id}" aria-pressed="${state.pace===p.id}">${esc(p.label)}</button>`).join("");
+  $("#format-list").innerHTML = FORMATS.map(f =>
+    `<button type="button" class="seg-btn" data-id="${f.id}" aria-pressed="${state.format===f.id}"><b>${esc(f.label)}</b><span>${esc(f.sub)}</span></button>`).join("");
+  const pick = (listSel, key) => $(listSel).querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => {
+    state[key] = btn.dataset.id;
+    $(listSel).querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === btn));
+    if (key === "goal") $("#e-goal").textContent = "";
+  }));
+  pick("#goal-list", "goal"); pick("#pace-list", "pace"); pick("#format-list", "format");
+  prefill("f-name", SUITE_USER.name); prefill("f-contact", SUITE_USER.contact); prefill("f-role", SUITE_USER.role);
+  show("screen-plan", 1);
+}
+function goalChosen(){
+  if (state.goal) return true;
+  $("#e-goal").textContent = "Please choose your 90-day goal.";
+  $("#goal-list").scrollIntoView({ behavior:"smooth", block:"center" });
+  return false;
+}
+
+/* ============ PLAN BUILD ============ */
+function computeResult(){
+  const h = state.how, goal = goalObj();
+  const pace = PACES.find(p => p.id === state.pace), format = FORMATS.find(f => f.id === state.format);
+  const weeks = JOURNEY[h.bottleneck].map((w, i) => ({ ...w, theme: WEEK_THEMES[i], lens: GOAL_LENS[goal.id][i], support: format.support[i] }));
+  const journeyAssigned = `${STAGES[h.bottleneck].journey} | ${goal.short}`;
+  return { ...h, goal, pace, format, weeks, journeyAssigned };
+}
+const profileSummary = h => ORDER.map(k => `${STAGES[k].name}: ${styleOf(h, k).name} (${h.level[k].name})`).join("; ");
+
+function validContact(v){
+  const email = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+  const phone = /^\+?[\d\s\-()]{8,20}$/.test(v) && v.replace(/\D/g,"").length >= 8;
+  return email || phone;
+}
+function setErr(input, errEl, msg){
+  $(errEl).textContent = msg; $(input).setAttribute("aria-invalid", msg ? "true" : "false");
+}
+async function sendLead(payload){
+  if (!WEBHOOK_URL || WEBHOOK_URL.includes("YOUR_GOOGLE_SCRIPT")){
+    console.info("[Obix] WEBHOOK_URL not configured. Payload:", payload);
+    return false;
+  }
+  try{
+    await Promise.race([
+      fetch(WEBHOOK_URL, { method:"POST", mode:"no-cors", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(payload) }),
+      new Promise(r => setTimeout(r, 4000))
+    ]);
+    return true;
+  } catch(err){ console.warn("[Obix] Webhook error:", err); return false; }
+}
+
+/* ============ JOURNEY ============ */
+function renderResult(){
+  const r = state.result = computeResult();
+  const name = state.lead && state.lead.name ? esc(state.lead.name.split(" ")[0]) + ", your" : "Your";
+  const sty = styleOf(r, r.bottleneck);
+  const summary = ORDER.map(k => {
+    const color = k === r.bottleneck ? "#f59e0b" : k === r.strongest ? "#10b981" : "#38bdf8";
+    return `<div class="bar-row"><span class="bar-label">${STAGES[k].n}. ${STAGES[k].name}<small>${esc(styleOf(r, k).name)} · ${r.level[k].name}</small></span>
+      <div class="bar-track"><div class="bar-fill" data-w="${Math.round(r.score[k]*100)}" style="background:${color}"></div></div>
+      <span class="bar-val">${Math.round(r.score[k]*100)}%</span></div>`;
+  }).join("");
+  const weeks = r.weeks.map((w, i) => `
+    <article class="week" style="animation-delay:${i*90}ms">
+      <div class="week-badge" aria-hidden="true"><small>WEEK</small><b>${i+1}</b></div>
+      <div>
+        <p class="week-theme">Week ${i+1} · ${esc(w.theme)}</p>
+        <h3>${esc(w.title)}</h3>
+        ${w.rIf
+          ? `<div class="rule"><div class="if"><b>IF</b>${esc(w.rIf)}</div><div class="then"><b>THEN</b>${esc(w.rThen)}</div></div>`
+          : `<p>${esc(w.body)}</p><div class="kv"><b>${esc(w.kLabel)}</b>${esc(w.k)}</div>`}
+        <div class="kv goal-lens"><b>Goal lens · ${esc(r.goal.short)}</b>${esc(w.lens)}</div>
+        <div class="kv"><b>${esc(r.format.label)}</b>${esc(w.support)}</div>
+      </div>
+    </article>`).join("");
+
+  $("#result").innerHTML = `
+    <p class="eyebrow" style="color:var(--emerald)">Your 4-Week Developmental Journey</p>
+    <h1 id="res-h">${name} plan: ${esc(STAGES[r.bottleneck].journey)}</h1>
+    <div class="plan-meta">
+      <span><b>Develops</b>Stage ${STAGES[r.bottleneck].n}: ${STAGES[r.bottleneck].name}</span>
+      <span><b>90-day goal</b>${esc(r.goal.title)}</span>
+      <span><b>Daily time</b>${esc(r.pace.label)}</span>
+      <span><b>Learning style</b>${esc(r.format.label)}</span>
+    </div>
+    <div class="pipe">${pipelineBlock({ bottleneck:r.bottleneck, strongest:r.strongest })}</div>
+    <div class="grid-2">
+      <div class="card insight amber">
+        <h3><span class="tag amber">Why this stage</span> ${esc(sty.name)}</h3>
+        <p>${STAGES[r.bottleneck].weak}</p>
+      </div>
+      <div class="card insight emerald">
+        <h3><span class="tag emerald">How to use your plan</span></h3>
+        <p>${esc(r.pace.note)} Lean on your strength in Stage ${STAGES[r.strongest].n} (${STAGES[r.strongest].name}).</p>
+      </div>
+    </div>
+    <div class="weeks">${weeks}</div>
+    <h2 style="margin-top:32px">How you are today</h2>
+    <p class="note" style="margin:-4px 0 14px">Pipeline score ${r.totalScore}/18 · ${r.tier.name}</p>
+    <div class="bars">${summary}</div>
+    <div class="actions">
+      <button class="btn btn-emerald" id="copy-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        Copy My 4-Week Development Plan</button>
+      <button class="btn btn-ghost" id="restart-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        Restart Assessment</button>
+      <button class="btn btn-ghost" onclick="suiteOpen('lab')">Explore the Curiosity Lab</button>
+    </div>`;
+  show("screen-result", 2);
+  requestAnimationFrame(() => setTimeout(() => {
+    document.querySelectorAll(".bar-fill").forEach(b => b.style.width = b.dataset.w + "%");
+  }, 150));
+  $("#copy-btn").addEventListener("click", copyPlan);
+  $("#restart-btn").addEventListener("click", restart);
+}
+
+function planText(){
+  const r = state.result, L = [];
+  L.push("OBIX ARCHITECT · MY 4-WEEK DEVELOPMENT PLAN");
+  if (state.lead) L.push(`${state.lead.name} · ${state.lead.role}`);
+  L.push("");
+  L.push("HOW I AM TODAY");
+  ORDER.forEach(k => L.push(`Stage ${STAGES[k].n} ${STAGES[k].name}: ${styleOf(r, k).name} (${r.level[k].name})`));
+  L.push(`Pipeline score: ${r.totalScore}/18 (${r.tier.name})`);
+  L.push(`Develop first: Stage ${STAGES[r.bottleneck].n} · ${STAGES[r.bottleneck].name}`);
+  L.push(`Strength: Stage ${STAGES[r.strongest].n} · ${STAGES[r.strongest].name}`);
+  L.push("");
+  L.push("MY PLAN");
+  L.push(`Journey: ${STAGES[r.bottleneck].journey}`);
+  L.push(`90-day goal: ${r.goal.title}`);
+  L.push(`Daily time: ${r.pace.label} (${r.pace.note})`);
+  L.push(`Learning style: ${r.format.label}`);
+  L.push("");
+  r.weeks.forEach((w, i) => {
+    L.push(`WEEK ${i+1}: ${w.theme.toUpperCase()}`);
+    L.push(w.title);
+    if (w.rIf){ L.push(`IF ${w.rIf}`); L.push(`THEN ${w.rThen}`); }
+    else { L.push(w.body); L.push(`${w.kLabel}: ${w.k}`); }
+    L.push(`Goal lens: ${w.lens}`);
+    L.push(`${r.format.label}: ${w.support}`);
+    L.push("");
+  });
+  return L.join("\n");
+}
+async function copyPlan(){
+  const text = planText();
+  try { await navigator.clipboard.writeText(text); toast("Plan copied to clipboard"); }
+  catch {
+    const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); toast("Plan copied to clipboard"); } catch { toast("Copy failed: select and copy manually"); }
+    ta.remove();
+  }
+}
+
+function restart(){
+  Object.assign(state, { answers:[], order:[], q:0, how:null, goal:null, pace:"20", format:"solo", lead:null, result:null });
+  $("#lead-form").reset();
+  ["#f-name","#f-contact","#f-role"].forEach(s => $(s).setAttribute("aria-invalid","false"));
+  ["#e-name","#e-contact","#e-role","#e-goal"].forEach(s => $(s).textContent = "");
+  show("screen-intro", -1);
+}
+
+/* ============ WIRING ============ */
+$("#start-btn").addEventListener("click", startQuiz);
+$("#q-back").addEventListener("click", () => {
+  if (state.q > 0){ state.q--; renderQuestion(); } else show("screen-intro", -1);
+});
+$("#plan-back").addEventListener("click", () => show("screen-profile", 0));
+$("#lead-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!goalChosen()) return;
+  const name = $("#f-name").value.trim(), contact = $("#f-contact").value.trim(), role = $("#f-role").value.trim();
+  setErr("#f-name", "#e-name", name.length >= 2 ? "" : "Please enter your full name.");
+  setErr("#f-contact", "#e-contact", validContact(contact) ? "" : "Enter a valid email or WhatsApp number.");
+  setErr("#f-role", "#e-role", role.length >= 2 ? "" : "Please enter your current role.");
+  const firstBad = document.querySelector('#lead-form [aria-invalid="true"]');
+  if (firstBad){ firstBad.focus(); return; }
+  state.lead = { name, email: contact, role };
+  rememberUser({ name, contact, role });
+  const r = computeResult();
+  const btn = $("#submit-btn"); btn.disabled = true; btn.textContent = "Building your plan…";
+  await sendLead({
+    app: "ObixArchitect",
+    name, email: contact, role,
+    selectedGoal: r.goal.title,
+    bottleneckStage: `Stage ${STAGES[r.bottleneck].n}: ${STAGES[r.bottleneck].name}`,
+    totalScore: r.totalScore,
+    journeyAssigned: r.journeyAssigned,
+    profileSummary: profileSummary(r),
+    planPreferences: `${r.pace.label} · ${r.format.label}`
+  });
+  btn.disabled = false; btn.textContent = "Create My Development Plan";
+  renderResult();
+});
+$("#skip-btn").addEventListener("click", () => { if (!goalChosen()) return; state.lead = null; renderResult(); });
+
+$("#hero-pipe").innerHTML = pipelineBlock({});
+show("screen-intro", -1);
+show("screen-intro", -1);
+</script>
+<script>
+(function(){
+    // Uses the suite-wide WEBHOOK_URL defined in the Architect script above
+
+    const allScreens = [
+      "lab-home",
+      "g-step-guess", "g-step-traps", "g-step-gate", "g-step-result",
+      "d-step-select", "d-step-investigate", "d-step-gate", "d-step-dossier"
+    ];
+
+    function showScreen(id) {
+      allScreens.forEach(s => document.getElementById(s).classList.add("lx-hidden"));
+      const el = document.getElementById(id);
+      el.classList.remove("lx-hidden");
+      // restart the fade-in animation
+      el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function labHome() {
+      showScreen("lab-home");
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function validContact(v) {
+      const email = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+      const phone = /^\+?[\d\s\-()]{8,20}$/.test(v) && v.replace(/\D/g, "").length >= 8;
+      return email || phone;
+    }
+
+    function sendToSheet(payload) {
+      if (!WEBHOOK_URL.startsWith("http")) {
+        console.info("[Obix Lab] WEBHOOK_URL not set. Payload:", payload);
+        return;
+      }
+      fetch(WEBHOOK_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() })
+      }).catch(err => console.warn("[Obix Lab] Webhook error:", err));
+    }
+
+    /* ==================== MODE 1 LOGIC ==================== */
+    const traps = [
+      {
+        title: "The 10-Second Notification Ping",
+        desc: "You are halfway through a complex task when your phone lights up with an intriguing message preview. What actually happens?",
+        cat: "focus",
+        options: [
+          { text: "I glance at it 'just for 5 seconds'—and end up checking two other apps.", pts: 20 },
+          { text: "I leave it untouched until my 45-minute work block finishes.", pts: 100 }
+        ]
+      },
+      {
+        title: "The Unfair Blame in a Group Chat",
+        desc: "Someone subtly shifts blame onto you in front of peers. What is your genuine first reflex?",
+        cat: "calm",
+        options: [
+          { text: "Feel my chest tighten and immediately type a pointed message clarifying my side.", pts: 20 },
+          { text: "Step away from the screen for 10 minutes until the heat leaves my body.", pts: 100 }
+        ]
+      },
+      {
+        title: "The Recurring Monday Chaos",
+        desc: "Every Monday starts with the exact same fire-drill confusion. How did you handle it last week?",
+        cat: "root",
+        options: [
+          { text: "Worked extra fast to put out the fire and moved on to Tuesday.", pts: 20 },
+          { text: "Blocked 30 minutes to redesign the Friday checklist so Monday couldn't break.", pts: 100 }
+        ]
+      },
+      {
+        title: "The Viral 'Must-Know' Thread",
+        desc: "You see a dramatic headline claiming your industry is changing overnight. What do you do?",
+        cat: "focus",
+        options: [
+          { text: "Click, read the comments, and open 4 tabs about it right away.", pts: 20 },
+          { text: "Ignore the hype unless it shows up in reliable primary data next week.", pts: 100 }
+        ]
+      },
+      {
+        title: "The Repeated Mistake by Someone Close",
+        desc: "A teammate or family member repeats a small habit you already asked them to stop. What happens?",
+        cat: "calm",
+        options: [
+          { text: "Respond with visible irritation or a sharp 'I already told you this.'", pts: 20 },
+          { text: "Pause and ask calmly what system or reminder is missing for them.", pts: 100 }
+        ]
+      }
+    ];
+
+    let trapIdx = 0;
+    let actuals = { focus: [], calm: [], root: [] };
+
+    function openGuessMode() {
+      trapIdx = 0;
+      actuals = { focus: [], calm: [], root: [] };
+      ["guess-focus", "guess-calm", "guess-root"].forEach(id => document.getElementById(id).value = 70);
+      ["val-focus", "val-calm", "val-root"].forEach(id => document.getElementById(id).innerText = "70%");
+      document.getElementById("g-error").innerText = "";
+      showScreen("g-step-guess");
+    }
+
+    function startTraps() {
+      showScreen("g-step-traps");
+      renderTrap();
+    }
+
+    // Shuffle the two options so the "better" answer isn't always in the same place
+    function shuffled(arr) {
+      return arr.map(v => [Math.random(), v]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+    }
+
+    function renderTrap() {
+      const t = traps[trapIdx];
+      document.getElementById("trap-counter").innerText = `Reality Trap ${trapIdx + 1} of ${traps.length}`;
+      document.getElementById("trap-title").innerText = t.title;
+      document.getElementById("trap-desc").innerText = t.desc;
+      const box = document.getElementById("trap-choices");
+      box.innerHTML = "";
+      shuffled(t.options).forEach(opt => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "lx-choice-btn";
+        b.innerText = opt.text;
+        b.onclick = () => {
+          actuals[t.cat].push(opt.pts);
+          trapIdx++;
+          if (trapIdx < traps.length) renderTrap();
+          else { showScreen("g-step-gate"); prefill("g-name", SUITE_USER.name); prefill("g-contact", SUITE_USER.contact); }
+        };
+        box.appendChild(b);
+      });
+    }
+
+    function avg(arr) {
+      return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    }
+
+    function submitGuessData(skipped) {
+      const nameInput = document.getElementById("g-name").value.trim();
+      const contactInput = document.getElementById("g-contact").value.trim();
+      if (!skipped && contactInput && !validContact(contactInput)) {
+        document.getElementById("g-error").innerText = "Please enter a valid email or WhatsApp number, or leave it blank.";
+        return;
+      }
+      const name = skipped ? "Explorer" : (nameInput || "Explorer");
+      const contact = skipped ? "Skipped" : contactInput;
+      if (!skipped) rememberUser({ name: nameInput, contact: contactInput });
+
+      const gFocus = parseInt(document.getElementById("guess-focus").value, 10);
+      const gCalm = parseInt(document.getElementById("guess-calm").value, 10);
+      const gRoot = parseInt(document.getElementById("guess-root").value, 10);
+      const rFocus = avg(actuals.focus);
+      const rCalm = avg(actuals.calm);
+      const rRoot = avg(actuals.root);
+
+      if (!skipped) {
+        sendToSheet({
+          app: "ObixGuessVsReality",
+          name, contact,
+          guesses: { gFocus, gCalm, gRoot },
+          reality: { rFocus, rCalm, rRoot }
+        });
+      }
+
+      showScreen("g-step-result");
+      document.getElementById("g-result-headline").innerText = `${name}'s Guess vs. Reality`;
+
+      const rows = [
+        { label: "Distraction Resistance", guess: gFocus, real: rFocus },
+        { label: "Emotional Pause Control", guess: gCalm, real: rCalm },
+        { label: "Root-Cause Thinking", guess: gRoot, real: rRoot }
+      ];
+      const container = document.getElementById("comparison-bars");
+      container.innerHTML = "";
+      let biggestGap = -999;
+      let gapTopic = "";
+      let smallestGap = 999;
+      let underTopic = "";
+      rows.forEach(r => {
+        const gap = r.guess - r.real;
+        if (gap > biggestGap) { biggestGap = gap; gapTopic = r.label; }
+        if (gap < smallestGap) { smallestGap = gap; underTopic = r.label; }
+        container.innerHTML += `
+          <div class="lx-compare-row">
+            <div class="lx-compare-head">
+              <span>${escapeHtml(r.label)}</span>
+              <span>Guess: <span style="color:var(--accent)">${r.guess}%</span> | Reality: <span style="color:var(--emerald)">${r.real}%</span></span>
+            </div>
+            <div class="lx-bar-track"><div class="lx-bar-fill" data-w="${r.guess}" style="background:var(--accent);"></div></div>
+            <div class="lx-bar-track"><div class="lx-bar-fill" data-w="${r.real}" style="background:var(--emerald);"></div></div>
+          </div>`;
+      });
+      requestAnimationFrame(() => setTimeout(() => {
+        container.querySelectorAll(".lx-bar-fill").forEach(b => b.style.width = b.dataset.w + "%");
+      }, 60));
+
+      const insight = document.getElementById("illusion-insight");
+      if (biggestGap > 15) {
+        insight.innerText = `You overestimated your "${gapTopic}" by ${biggestGap} points. Under pressure, your fast autopilot takes over faster than your conscious self-image realizes.`;
+      } else if (smallestGap < -15) {
+        insight.innerText = `You underestimated your "${underTopic}" by ${Math.abs(smallestGap)} points. Your instincts are stronger than you give yourself credit for: build on them deliberately.`;
+      } else {
+        insight.innerText = `Your self-awareness is remarkably calibrated: your predictions matched your real behavior within ${Math.max(Math.abs(biggestGap), Math.abs(smallestGap))} points.`;
+      }
+    }
+
+    /* ==================== MODE 2 LOGIC ==================== */
+    const cases = [
+      {
+        name: "The Vanishing Evening",
+        layers: [
+          {
+            q: "Layer 1 (The Trigger): What actually happened 10 minutes before you abandoned your goal?",
+            hint: "Look past 'I was lazy' and find the physical or environmental trigger.",
+            opts: [
+              { label: "I sat down tired with my phone unlocked right next to me.", clue: "Unprotected environment + low brain glucose" },
+              { label: "I looked at a massive, vague to-do item and felt mental friction.", clue: "Ambiguous task triggered avoidance" }
+            ]
+          },
+          {
+            q: "Layer 2 (The Hidden Belief): What story did your fast mind tell you to justify stopping?",
+            hint: "Spot the subtle excuse your lower mind used.",
+            opts: [
+              { label: "'I deserve a quick 10-minute break first before starting.'", clue: "Dopamine trap disguised as rest" },
+              { label: "'If I can't do it perfectly tonight, there's no point starting.'", clue: "Perfectionism masking fear of effort" }
+            ]
+          },
+          {
+            q: "Layer 3 (The System Flaw): What structural rule was missing?",
+            hint: "Identify the design flaw in your system.",
+            opts: [
+              { label: "No physical boundary separating rest devices from deep-work space.", clue: "Missing environmental friction" },
+              { label: "No pre-defined 15-minute starter micro-step.", clue: "Missing entry rule" }
+            ]
+          }
+        ],
+        rule: "IF it is 7:45 PM, THEN place your phone in another room and complete just ONE 15-minute defined micro-step before allowing any screen entertainment."
+      },
+      {
+        name: "The Dependent Team",
+        layers: [
+          {
+            q: "Layer 1 (The Trigger): When someone brings you an unclear problem, what is your instant reflex?",
+            hint: "Observe your speed of response.",
+            opts: [
+              { label: "I give them the exact answer immediately so we don't lose time.", clue: "Speed prioritized over ownership" },
+              { label: "I take over the tricky part myself to guarantee quality.", clue: "Heroic rescuing loop" }
+            ]
+          },
+          {
+            q: "Layer 2 (The Hidden Belief): What quiet payoff do you get from solving their problem?",
+            hint: "Be brutally honest about the ego reward.",
+            opts: [
+              { label: "It feels good to be the indispensable expert who knows everything.", clue: "Status tied to being needed" },
+              { label: "I don't trust them to handle the risk without me.", clue: "Anxiety-driven control" }
+            ]
+          },
+          {
+            q: "Layer 3 (The System Flaw): Why does this keep repeating every week?",
+            hint: "Look at the incentive you accidentally created.",
+            opts: [
+              { label: "You trained others that bringing you problems gets free labor.", clue: "Reverse delegation incentive" },
+              { label: "There are no written decision boundaries so people guess and escalate.", clue: "Missing decision guardrails" }
+            ]
+          }
+        ],
+        rule: "IF a team member brings you a problem without a proposed solution, THEN ask: 'What are the two options you recommend, and which risk should we watch?' before offering advice."
+      },
+      {
+        name: "The Instant Overreaction",
+        layers: [
+          {
+            q: "Layer 1 (The Trigger): Where did you first notice the reaction?",
+            hint: "Trace the biological signal before the thought.",
+            opts: [
+              { label: "Sudden heat in my chest/jaw within 2 seconds of hearing the words.", clue: "Amygdala threat spike" },
+              { label: "An immediate urge to prove the other person wrong.", clue: "Ego defense reflex" }
+            ]
+          },
+          {
+            q: "Layer 2 (The Hidden Belief): What old fear did that small remark poke?",
+            hint: "Why did a minor comment feel like a major attack?",
+            opts: [
+              { label: "Fear of losing respect or looking incompetent in front of others.", clue: "Social status threat" },
+              { label: "It reminded me of a past time when my effort was dismissed.", clue: "Stored emotional conditioning" }
+            ]
+          },
+          {
+            q: "Layer 3 (The System Flaw): Why did the mood last for three hours?",
+            hint: "Look at what kept feeding the cortisol.",
+            opts: [
+              { label: "I kept replaying the argument in my head, re-triggering adrenaline.", clue: "Mental rumination loop" },
+              { label: "I didn't separate the raw fact from my personal story.", clue: "Unverified assumption" }
+            ]
+          }
+        ],
+        rule: "IF you feel physical tension after a comment, THEN write down the exact raw words spoken (facts only) vs. the story your mind added, and wait 15 minutes before responding."
+      }
+    ];
+
+    let activeCase = null;
+    let layerIdx = 0;
+    let cluesCollected = [];
+
+    function openDetectiveMode() {
+      showScreen("d-step-select");
+    }
+
+    function startCase(cIdx) {
+      activeCase = cases[cIdx];
+      layerIdx = 0;
+      cluesCollected = [];
+      document.getElementById("d-error").innerText = "";
+      showScreen("d-step-investigate");
+      renderLayer();
+    }
+
+    function renderLayer() {
+      const l = activeCase.layers[layerIdx];
+      document.getElementById("layer-badge").innerText = `Clue Layer ${layerIdx + 1} of ${activeCase.layers.length} • ${activeCase.name}`;
+      document.getElementById("trail-box").innerHTML = cluesCollected.length
+        ? `<strong>Clues Uncovered:</strong> ${cluesCollected.map(escapeHtml).join(" → ")}`
+        : `<strong>Case File Open:</strong> Tracing root cause...`;
+      document.getElementById("layer-question").innerText = l.q;
+      document.getElementById("layer-hint").innerText = l.hint;
+      const box = document.getElementById("layer-options");
+      box.innerHTML = "";
+      l.opts.forEach(o => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "lx-choice-btn";
+        b.innerText = o.label;
+        b.onclick = () => {
+          cluesCollected.push(o.clue);
+          layerIdx++;
+          if (layerIdx < activeCase.layers.length) renderLayer();
+          else { showScreen("d-step-gate"); prefill("d-name", SUITE_USER.name); prefill("d-contact", SUITE_USER.contact); }
+        };
+        box.appendChild(b);
+      });
+    }
+
+    function finishCase(skipped) {
+      const nameInput = document.getElementById("d-name").value.trim();
+      const contactInput = document.getElementById("d-contact").value.trim();
+      if (!skipped && contactInput && !validContact(contactInput)) {
+        document.getElementById("d-error").innerText = "Please enter a valid email or WhatsApp number, or leave it blank.";
+        return;
+      }
+      const name = skipped ? "Investigator" : (nameInput || "Investigator");
+      const contact = skipped ? "Skipped" : contactInput;
+      if (!skipped) rememberUser({ name: nameInput, contact: contactInput });
+
+      if (!skipped) {
+        sendToSheet({
+          app: "ObixRootCauseDetective",
+          name, contact,
+          caseSolved: activeCase.name,
+          clues: cluesCollected
+        });
+      }
+
+      showScreen("d-step-dossier");
+      document.getElementById("dossier-title").innerText = `Case Solved: ${activeCase.name}`;
+      document.getElementById("final-chain").innerHTML =
+        `<strong>Root-Cause Chain:</strong><br>${cluesCollected.map(escapeHtml).join(" ➔ ")}`;
+      document.getElementById("fix-rule").innerText = activeCase.rule;
+    }
+    Object.assign(window, { openGuessMode, openDetectiveMode, labHome, startTraps, submitGuessData, startCase, finishCase });
+})();
+</script>
+<script>
+
+/* ================= SUITE GLUE ================= */
+// Optional: link to the separate Obix Mirror app. Leave empty to hide the link.
+const MIRROR_URL = "";
+
+// Details shared across the suite, so people only type them once
+const SUITE_USER = { name: "", contact: "", role: "" };
+function rememberUser(u){
+  Object.keys(u).forEach(k => { if (u[k] && !/^(Explorer|Investigator|Skipped)$/.test(u[k])) SUITE_USER[k] = u[k]; });
+}
+function prefill(id, val){ const el = document.getElementById(id); if (el && !el.value && val) el.value = val; }
+
+function suiteOpen(mod){
+  document.querySelectorAll(".module").forEach(m => m.classList.toggle("active", m.id === "mod-" + mod));
+  document.querySelectorAll(".suite-nav [data-mod]").forEach(b => {
+    if (b.dataset.mod === mod) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  if (mod === "architect"){
+    const anyActive = document.querySelector("#mod-architect .screen.active");
+    if (!anyActive) show("screen-intro", -1);
+  }
+  if (mod === "lab" && window.labHome) window.labHome();
+  window.scrollTo({ top:0, behavior:"smooth" });
+}
+function suiteOpenLab(which){
+  suiteOpen("lab");
+  if (which === "guess") window.openGuessMode();
+  if (which === "detective") window.openDetectiveMode();
+}
+
+document.querySelectorAll(".suite-nav [data-mod]").forEach(b => b.addEventListener("click", () => suiteOpen(b.dataset.mod)));
+if (MIRROR_URL){
+  const a = document.getElementById("nav-mirror"); a.href = MIRROR_URL; a.hidden = false;
+  const m = document.getElementById("hub-mirror"); m.hidden = false; m.querySelector("a").href = MIRROR_URL;
+}
+
+suiteOpen("home");
+
+</script>
+</body>
+</html>
